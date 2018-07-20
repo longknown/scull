@@ -1,0 +1,25 @@
+#!/bin/sh
+module="scull"
+device="scull"
+mode="664"
+
+/sbin/insmod ./${module}.ko $* || exit 1
+
+# remove stale devices in /dev/
+rm -rf /dev/${device}[0-3]
+
+# only get the first matched device major number
+major=$(awk '$2 == "$device" {print $1}' /proc/devices | awk 'NR == 1')
+
+# create new device files
+for i in {0..3}
+do
+	mknod ${device}$i c $major 0
+done
+
+# change permissions
+group="staff"
+grep -q "staff" /etc/group || group="wheel"
+
+chgrp $group ${device}[0-3]
+chmod $mode ${device}[0-3]
