@@ -30,3 +30,5 @@ int (scull_open) (struct inode *, struct file *);
 int (scull_release) (struct inode *, struct file *);
 long (scull_ioctl) (struct file *, unsigned int, unsigned long);
 int (scull_trim) (struct scull_dev *);
+
+struct scull_qset *scull_follow(struct scull_dev *, int);
