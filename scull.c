@@ -1,4 +1,4 @@
-#include <asm-generic/uaccess.h>
+#include <asm/uaccess.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -11,13 +11,26 @@
 
 MODULE_LICENSE("Dual BSD/GPL");
 
+struct file_operations scull_fops = {
+    .owner          = THIS_MODULE,
+    .llseek         = scull_llseek,
+    .read           = scull_read,
+    .write          = scull_write,
+    .release        = scull_release,
+    .unlocked_ioctl = scull_ioctl,
+    .open           = scull_open,
+};
+
+// global simple instance of scull_dev
+struct scull_dev sdev[DEVICE_NUM];
+
 static int scull_major = SCULL_MAJOR, scull_minor = 0, scull_nr_devs = DEVICE_NUM;
-static int scull_set = SCULL_SET, scull_quantum = SCULL_QUANTUM;
+static int scull_qset = SCULL_SET, scull_quantum = SCULL_QUANTUM;
 
 module_param(scull_major, int, S_IRUGO);
 module_param(scull_minor, int, S_IRUGO);
 module_param(scull_nr_devs, int, S_IRUGO);
-module_param(scull_set, int, S_IRUGO);
+module_param(scull_qset, int, S_IRUGO);
 module_param(scull_quantum, int, S_IRUGO);
 
 /*
@@ -39,7 +52,7 @@ static int alloc_dev_num(void)
     if(result < 0) {
         printk(KERN_WARNING "%s: can't get major number %d\n", DEVICE_NAME, scull_major);
     }
-    return result
+    return result;
 }
 
 static void free_dev_num(void)
@@ -49,15 +62,6 @@ static void free_dev_num(void)
     unregister_chrdev_region(dev, scull_nr_devs);
 }
 
-struct file_operations scull_fops = {
-    .owner          = THIS_MODULE,
-    .llseek         = scull_llseek,
-    .read           = scull_read,
-    .write          = scull_write,
-    .release        = scull_release,
-    .unlocked_ioctl = scull_ioctl,
-    .open           = scull_open,
-};
 
 /*
  * init on the index-th minor device and add the char device to kernel
@@ -68,7 +72,7 @@ static void scull_dev_init(struct scull_dev *sdev, int index)
     dev_t dev = MKDEV(scull_major, scull_minor+index);
 
     cdev_init(&sdev->cdev, &scull_fops);
-    sdev->cdev->owner = THIS_MODULE;
+    sdev->cdev.owner = THIS_MODULE;
     err = cdev_add(&sdev->cdev, dev, 1);
     if(err < 0) {
         printk(KERN_ALERT "cdev: failed to add cdev to kernel for device(%d, %d)", \
@@ -93,28 +97,28 @@ int scull_open(struct inode *inode, struct file *filp)
 
 int scull_release(struct inode *inode, struct file *filp)
 {
-    // XXX currently nothing needed to be handled here
+    // XXX curly nothing needed to be handled here
     return 0;
 }
 
 int scull_trim(struct scull_dev *sdev)
 {
-    struct scull_qset *root = sdev->qset, *qp, *current;
+    struct scull_qset *root = sdev->data, *qp, *cur;
     void **datap;
 
-    current = root;
-    while(current) {
-        qp = current->next;
-        // release quantum set of the current scull_qset
-        for(datap = current->data; datap && *datap; ++datap) {
+    cur = root;
+    while(cur) {
+        qp = cur->next;
+        // release quantum set of the cur scull_qset
+        for(datap = cur->data; datap && *datap; ++datap) {
             kfree(*datap);
         }
-        kfree(current->data);
-        kfree(current);
-        current = qp;
+        kfree(cur->data);
+        kfree(cur);
+        cur = qp;
     }
 
-    sdev->qset = NULL;
+    sdev->data = NULL;
     sdev->size = 0UL;
     sdev->qset = scull_qset;
     sdev->quantum = scull_quantum;
@@ -123,7 +127,7 @@ int scull_trim(struct scull_dev *sdev)
 
 struct scull_qset *scull_follow(struct scull_dev *dev, int item)
 {
-    struct scull_qset *qptr = dev->qset;
+    struct scull_qset *qptr = dev->data;
     while(item-- > 0 && qptr) {
         qptr = qptr->next;
     }
@@ -173,7 +177,7 @@ done:
     return read;
 }
 
-ssize_t scull_write(struct file *filp, char __user *buffer, size_t count, loff_t *f_pos)
+ssize_t scull_write(struct file *filp, const char __user *buffer, size_t count, loff_t *f_pos)
 {
     struct scull_dev *dev = (struct scull_dev *)filp->private_data;
     int quantum, qset;
@@ -218,9 +222,29 @@ ssize_t scull_write(struct file *filp, char __user *buffer, size_t count, loff_t
     *f_pos += count;
     retval = count;
     if(dev->size < *f_pos)  // f_pos may be llseek to be behind the device size
-        dev->size = *f_pos
+        dev->size = *f_pos;
 
 done:
     up(&dev->sem);
     return retval;
 }
+
+int __init scull_init(void)
+{
+    int index;
+    if(alloc_dev_num() > 0) {
+        // register 4 devices
+        for(index = 0; index < DEVICE_NUM; ++index) {
+            scull_dev_init(&sdev[index], index);
+        }
+    }
+}
+
+void __exit scull_exit(void)
+{
+    free_dev_num();
+    scull_release();
+}
+
+module_init(scull_init);
+module_exit(scull_exit);
