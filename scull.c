@@ -1,7 +1,8 @@
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/string.h>
@@ -75,10 +76,23 @@ static void scull_dev_init(struct scull_dev *sdev, int index)
     sdev->cdev.owner = THIS_MODULE;
     err = cdev_add(&sdev->cdev, dev, 1);
     if(err < 0) {
-        printk(KERN_ALERT "cdev: failed to add cdev to kernel for device(%d, %d)", \
+        printk(KERN_ALERT "cdev: failed to add cdev to kernel for device(%d, %d)\n", \
                 scull_major, scull_minor+index);
     }
 }
+
+/* XXX dummy functions for scull_llseek() and scull_ioctl() */
+loff_t scull_llseek(struct file *filp, loff_t offset, int i)
+{
+    return 0;
+}
+
+
+long scull_ioctl(struct file *filp, unsigned int ui, unsigned long ul)
+{
+    return 0;
+}
+
 
 
 int scull_open(struct inode *inode, struct file *filp)
@@ -139,8 +153,9 @@ ssize_t scull_read(struct file *filp, char __user *buffer, size_t count, loff_t 
 {
     struct scull_dev *dev = (struct scull_dev *)filp->private_data;
     int quantum = dev->quantum, qset = dev->qset;
-    int item_size = quantum * qset; // size of each qset
-    int q_pos, r_pos, item_n, item_r;
+    int32_t item_size = quantum * qset; // size of each qset
+    int64_t item_n;
+    int32_t r_pos, item_r, q_pos;
     struct scull_qset *qptr;
     ssize_t read = 0;
 
@@ -152,8 +167,8 @@ ssize_t scull_read(struct file *filp, char __user *buffer, size_t count, loff_t 
         count = dev->size - *f_pos;
 
     // we will find the right place to read
-    item_n = *f_pos / item_size; // which qset
-    item_r = *f_pos % item_size; // offset at that qset
+    // we have to take care of 64, 32 division and remainder, using <linux/math64.h>
+    item_n = div_s64_rem(*f_pos, item_size, &item_r); // which qset
 
     qptr = scull_follow(dev, item_n);
 
@@ -182,7 +197,8 @@ ssize_t scull_write(struct file *filp, const char __user *buffer, size_t count, 
     struct scull_dev *dev = (struct scull_dev *)filp->private_data;
     int quantum, qset;
     struct scull_qset *qptr;
-    int item_n, item_r, q_pos, r_pos, item_size;
+    int64_t item_n;
+    int item_r, q_pos, r_pos, item_size;
     ssize_t retval = 0;
 
     quantum = dev->quantum;
@@ -192,8 +208,7 @@ ssize_t scull_write(struct file *filp, const char __user *buffer, size_t count, 
     if(down_interruptible(&dev->sem))
         return -ERESTARTSYS;
 
-    item_n = *f_pos / item_size;
-    item_r = *f_pos % item_size;
+    item_n = div_s64_rem(*f_pos, item_size, &item_r); // which qset
 
     qptr = scull_follow(dev, item_n);
     if(!qptr)
@@ -238,12 +253,16 @@ int __init scull_init(void)
             scull_dev_init(&sdev[index], index);
         }
     }
+    printk(KERN_INFO "scull module inserted to kernel!\n");
+
+    return 0;
 }
 
 void __exit scull_exit(void)
 {
     free_dev_num();
-    scull_release();
+    printk(KERN_INFO "scull module removed from kernel!\n");
+    scull_release(NULL, NULL);
 }
 
 module_init(scull_init);
