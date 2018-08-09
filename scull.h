@@ -32,3 +32,4 @@ long (scull_ioctl) (struct file *, unsigned int, unsigned long);
 int (scull_trim) (struct scull_dev *);
 
 struct scull_qset *scull_follow(struct scull_dev *, int);
+int scull_alloc(struct scull_dev *);
