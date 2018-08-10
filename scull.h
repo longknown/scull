@@ -1,5 +1,10 @@
 #include <linux/cdev.h>
 #include <linux/fs.h>
+#include <linux/kernel.h>
+#include <linux/semaphore.h>
+
+// uncomment NDEBUG to enable ALOGV
+//#define NDEBUG
 
 #define DEVICE_NAME "scull"
 #define MODULE_NAME "scull"
@@ -7,6 +12,17 @@
 #define DEVICE_NUM  4
 #define SCULL_SET   1024
 #define SCULL_QUANTUM   4096
+
+#ifdef NDEBUG
+#define ALOGV(fmt, ...) \
+    ((void)printk(KERN_INFO fmt, ## __VA_ARGS__))
+#else
+#define ALOGV(...)  \
+    ((void) 0)
+#endif
+
+#define ALOGD(fmt, ...) \
+    ((void)printk(KERN_ALERT fmt, ## __VA_ARGS__))
 
 struct scull_qset {
     void **data;            /* end with NULL pointer*/

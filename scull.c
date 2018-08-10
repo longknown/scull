@@ -52,10 +52,7 @@ static int alloc_dev_num(void)
     }
 
     if(result < 0) {
-        printk(KERN_WARNING "%s: can't get major number %d\n", DEVICE_NAME, scull_major);
-    } else {
-        printk(KERN_INFO "%s: successfully get a major number %d for %d devices\n", \
-                DEVICE_NAME, scull_major, scull_nr_devs);
+        ALOGD("%s: can't get major number %d\n", DEVICE_NAME, scull_major);
     }
     return result;
 }
@@ -71,7 +68,7 @@ static void free_dev_num(void)
 /*
  * init on the index-th minor device and add the char device to kernel
  */
-static void scull_dev_init(struct scull_dev *sdev, int index)
+static int scull_dev_init(struct scull_dev *sdev, int index)
 {
     int err;
     dev_t dev = MKDEV(scull_major, scull_minor+index);
@@ -80,12 +77,11 @@ static void scull_dev_init(struct scull_dev *sdev, int index)
     sdev->cdev.owner = THIS_MODULE;
     err = cdev_add(&sdev->cdev, dev, 1);
     if(err) {
-        printk(KERN_ALERT "cdev: failed to add cdev to kernel for device(%d, %d), errno=%d\n", \
+        ALOGD("cdev: failed to add cdev to kernel for device(%d, %d), errno=%d\n", \
                 scull_major, scull_minor+index, err);
-    } else {
-        printk(KERN_INFO "cdev: successfully add cdev to kernel for device(%d, %d)\n", \
-                scull_major, scull_minor+index);
     }
+
+    return err;
 }
 
 /* XXX dummy functions for scull_llseek() and scull_ioctl() */
@@ -105,14 +101,16 @@ int scull_open(struct inode *inode, struct file *filp)
 {
     struct scull_dev *sdev;
 
-    printk(KERN_INFO "file open calls scull_open");
     sdev = container_of(inode->i_cdev, struct scull_dev, cdev);
     filp->private_data = (void *)sdev;
 
     // trim the device size to 0, when opened in Write-Only mode
+    ALOGV("scull_open: calls scull_open with flag 0x%x", filp->f_flags & O_ACCMODE);
     if((filp->f_flags & O_ACCMODE) == O_WRONLY) {
+        ALOGV("scull_open: in O_WRONLY mode, trim and re-alloc the data");
         scull_trim(sdev);
         // at least we should allocate the data quantums for the first time
+        kfree(sdev->data);
         if(scull_alloc(sdev))
             return -1;
     }
@@ -122,16 +120,16 @@ int scull_open(struct inode *inode, struct file *filp)
 
 int scull_release(struct inode *inode, struct file *filp)
 {
-    // free the data allocation
-    struct scull_dev *sdev = (struct scull_dev *)filp->private_data;
-    scull_trim(sdev);
+    // XXX release nothing right now, be careful scull_release would be called
+    //      each time device file is closed
+    ALOGV("scull_release: release file\n");
     return 0;
 }
 
 int scull_alloc(struct scull_dev *sdev)
 {
     if(!sdev->data && !(sdev->data = kmalloc(sizeof(struct scull_qset), GFP_KERNEL))) {
-        printk(KERN_ALERT "failed to allocate scull_qset to store data\n");
+        ALOGD("failed to allocate scull_qset to store data\n");
         return 1;
     }
 
@@ -144,6 +142,7 @@ int scull_trim(struct scull_dev *sdev)
 {
     struct scull_qset *root = sdev->data, *qp, *cur;
     void **datap;
+    ALOGV("scull_trim: be careful, we are going to trim the data!\n");
 
     cur = root;
     while(cur) {
@@ -183,8 +182,8 @@ ssize_t scull_read(struct file *filp, char __user *buffer, size_t count, loff_t 
     int32_t r_pos, item_r, q_pos;
     struct scull_qset *qptr;
     ssize_t read = 0;
-    printk(KERN_INFO "scull_read: tries to read %d at offset %llu, dev=%p, sem=%p\n", \
-            count, *f_pos, dev, &dev->sem);
+    ALOGV("scull_read: tries to read %d at offset %llu\n", \
+            count, *f_pos);
 
     if(down_interruptible(&dev->sem))
         return -ERESTARTSYS;
@@ -205,7 +204,7 @@ ssize_t scull_read(struct file *filp, char __user *buffer, size_t count, loff_t 
 
     // what if the data is damaged?
     if(qptr == NULL || qptr->data == NULL || qptr->data[q_pos] == NULL) {
-        printk(KERN_ALERT "scull_write: no available data for the read request\n");
+        ALOGV("scull_read: no available data for the read request\n");
         goto done;
     }
     count = (count > quantum-r_pos) ? quantum-r_pos : count;
@@ -215,8 +214,8 @@ ssize_t scull_read(struct file *filp, char __user *buffer, size_t count, loff_t 
     }
     *f_pos += count;
     read = count;
-    printk(KERN_INFO "scull_read: tries to read %d at offset %llu, but finally get %d\n", \
-            count, *f_pos, read);
+    ALOGV("scull_read: successfully read %d from device\n", \
+            read);
 
 done:
     up(&dev->sem);
@@ -231,7 +230,7 @@ ssize_t scull_write(struct file *filp, const char __user *buffer, size_t count, 
     int64_t item_n;
     int item_r, q_pos, r_pos, item_size;
     ssize_t retval = 0;
-    printk(KERN_INFO "scull_write: tries to write %d at offset %llu\n", \
+    ALOGV("scull_write: tries to write %d at offset %llu\n", \
             count, *f_pos);
 
     quantum = dev->quantum;
@@ -269,8 +268,8 @@ ssize_t scull_write(struct file *filp, const char __user *buffer, size_t count, 
 
     *f_pos += count;
     retval = count;
-    printk(KERN_INFO "scull_write: tries to write %d at offset %llu, but finally get %d\n", \
-            count, *f_pos, retval);
+    ALOGV("scull_write: successfully write %d to device\n", \
+            retval);
     if(dev->size < *f_pos)  // f_pos may be llseek to be behind the device size
         dev->size = *f_pos;
 
@@ -282,15 +281,31 @@ done:
 int __init scull_init(void)
 {
     int index;
-    if(alloc_dev_num() == 0) {
+    int err;
+    if((err=alloc_dev_num()) == 0) {
         // register 4 devices
         for(index = 0; index < DEVICE_NUM; ++index) {
-            scull_dev_init(&gSdev[index], index);
-        }
-    }
-    printk(KERN_INFO "scull module inserted to kernel!\n");
+            // initialise the struct scull_dev before any file operation
+            memset(&gSdev[index], 0, sizeof(struct scull_dev));
+            scull_trim(&gSdev[index]);
+            sema_init(&gSdev[index].sem, 1);
 
-    return 0;
+            err = scull_dev_init(&gSdev[index], index);
+            if(err)
+                goto fail;
+        }
+        ALOGD("scull module inserted to kernel!\n");
+    }
+
+    return err;
+
+fail:
+    // unroll the cdev_add()
+    while(index-- > 0) {
+        cdev_del(&(gSdev[index].cdev));
+    }
+    free_dev_num();
+    return err;
 }
 
 void __exit scull_exit(void)
@@ -300,8 +315,9 @@ void __exit scull_exit(void)
     free_dev_num();
     for(index = 0; index < DEVICE_NUM; ++index) {
         cdev_del(&(gSdev[index].cdev));
+        scull_trim(&gSdev[index]);
     }
-    printk(KERN_INFO "scull module removed from kernel!\n");
+    ALOGD("scull module removed from kernel!\n");
 }
 
 module_init(scull_init);
