@@ -1,5 +1,6 @@
 ifneq ($(KERNELRELEASE),)
-	obj-m := scull.o
+	obj-m += scull.o
+	scull-objs := sculldev.o scull_proc.o
 
 else
 	KERNELDIR ?= /lib/modules/$(shell uname -r)/build
@@ -11,4 +12,3 @@ endif
 
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
-

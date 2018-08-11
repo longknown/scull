@@ -1,13 +1,14 @@
-#include <linux/uaccess.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/math64.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/proc_fs.h>
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/slab.h>
+#include <linux/uaccess.h>
 #include "scull.h"
 
 MODULE_LICENSE("Dual BSD/GPL");
@@ -25,14 +26,16 @@ struct file_operations gScull_fops = {
 // global simple instance of scull_dev
 struct scull_dev gSdev[DEVICE_NUM];
 
-static int scull_major = SCULL_MAJOR, scull_minor = 0, scull_nr_devs = DEVICE_NUM;
-static int scull_qset = SCULL_SET, scull_quantum = SCULL_QUANTUM;
+//static
+int gScull_major = SCULL_MAJOR, gScull_minor = 0, gDev_nums = DEVICE_NUM;
+//static
+int gScull_qset = SCULL_SET, gScull_quantum = SCULL_QUANTUM;
 
-module_param(scull_major, int, S_IRUGO);
-module_param(scull_minor, int, S_IRUGO);
-module_param(scull_nr_devs, int, S_IRUGO);
-module_param(scull_qset, int, S_IRUGO);
-module_param(scull_quantum, int, S_IRUGO);
+module_param(gScull_major, int, S_IRUGO);
+module_param(gScull_minor, int, S_IRUGO);
+module_param(gDev_nums, int, S_IRUGO);
+module_param(gScull_qset, int, S_IRUGO);
+module_param(gScull_quantum, int, S_IRUGO);
 
 /*
  * wrap the device number allocation and free
@@ -43,16 +46,16 @@ static int alloc_dev_num(void)
     dev_t dev;
     int result;
 
-    if(scull_major) {
-        dev = MKDEV(scull_major, scull_minor);
-        result = register_chrdev_region(dev, scull_nr_devs, DEVICE_NAME);
+    if(gScull_major) {
+        dev = MKDEV(gScull_major, gScull_minor);
+        result = register_chrdev_region(dev, gDev_nums, DEVICE_NAME);
     } else {
-        result = alloc_chrdev_region(&dev, scull_minor, scull_nr_devs, DEVICE_NAME);
-        scull_major = MAJOR(dev);
+        result = alloc_chrdev_region(&dev, gScull_minor, gDev_nums, DEVICE_NAME);
+        gScull_major = MAJOR(dev);
     }
 
     if(result < 0) {
-        ALOGD("%s: can't get major number %d\n", DEVICE_NAME, scull_major);
+        ALOGD("%s: can't get major number %d\n", DEVICE_NAME, gScull_major);
     }
     return result;
 }
@@ -60,8 +63,8 @@ static int alloc_dev_num(void)
 static void free_dev_num(void)
 {
     dev_t dev;
-    dev = MKDEV(scull_major, scull_minor);
-    unregister_chrdev_region(dev, scull_nr_devs);
+    dev = MKDEV(gScull_major, gScull_minor);
+    unregister_chrdev_region(dev, gDev_nums);
 }
 
 
@@ -71,14 +74,14 @@ static void free_dev_num(void)
 static int scull_dev_init(struct scull_dev *sdev, int index)
 {
     int err;
-    dev_t dev = MKDEV(scull_major, scull_minor+index);
+    dev_t dev = MKDEV(gScull_major, gScull_minor+index);
 
     cdev_init(&sdev->cdev, &gScull_fops);
     sdev->cdev.owner = THIS_MODULE;
     err = cdev_add(&sdev->cdev, dev, 1);
     if(err) {
         ALOGD("cdev: failed to add cdev to kernel for device(%d, %d), errno=%d\n", \
-                scull_major, scull_minor+index, err);
+                gScull_major, gScull_minor+index, err);
     }
 
     return err;
@@ -100,6 +103,7 @@ long scull_ioctl(struct file *filp, unsigned int ui, unsigned long ul)
 int scull_open(struct inode *inode, struct file *filp)
 {
     struct scull_dev *sdev;
+    int err;
 
     sdev = container_of(inode->i_cdev, struct scull_dev, cdev);
     filp->private_data = (void *)sdev;
@@ -108,10 +112,13 @@ int scull_open(struct inode *inode, struct file *filp)
     ALOGV("scull_open: calls scull_open with flag 0x%x", filp->f_flags & O_ACCMODE);
     if((filp->f_flags & O_ACCMODE) == O_WRONLY) {
         ALOGV("scull_open: in O_WRONLY mode, trim and re-alloc the data");
+        down_interruptible(&sdev->sem);
         scull_trim(sdev);
         // at least we should allocate the data quantums for the first time
         kfree(sdev->data);
-        if(scull_alloc(sdev))
+        err = scull_alloc(sdev);
+        up(&sdev->sem);
+        if(err)
             return -1;
     }
 
@@ -150,16 +157,18 @@ int scull_trim(struct scull_dev *sdev)
         // release quantum set of the cur scull_qset
         for(datap = cur->data; datap && *datap; ++datap) {
             kfree(*datap);
+            *datap = NULL;
         }
         kfree(cur->data);
+        cur->data = NULL;
         kfree(cur);
         cur = qp;
     }
 
     sdev->data = NULL;
     sdev->size = 0UL;
-    sdev->qset = scull_qset;
-    sdev->quantum = scull_quantum;
+    sdev->qset = gScull_qset;
+    sdev->quantum = gScull_quantum;
     return 0;
 }
 
@@ -284,16 +293,19 @@ int __init scull_init(void)
     int err;
     if((err=alloc_dev_num()) == 0) {
         // register 4 devices
-        for(index = 0; index < DEVICE_NUM; ++index) {
+        for(index = 0; index < gDev_nums; ++index) {
             // initialise the struct scull_dev before any file operation
             memset(&gSdev[index], 0, sizeof(struct scull_dev));
             scull_trim(&gSdev[index]);
             sema_init(&gSdev[index].sem, 1);
+            sema_init(&gSdev[index].proc_sem, 1);
 
             err = scull_dev_init(&gSdev[index], index);
             if(err)
                 goto fail;
         }
+
+        proc_create("driver/scullmem", 0, NULL, &proc_fops);
         ALOGD("scull module inserted to kernel!\n");
     }
 
@@ -313,10 +325,11 @@ void __exit scull_exit(void)
     int index;
     
     free_dev_num();
-    for(index = 0; index < DEVICE_NUM; ++index) {
+    for(index = 0; index < gDev_nums; ++index) {
         cdev_del(&(gSdev[index].cdev));
         scull_trim(&gSdev[index]);
     }
+    remove_proc_entry("/driver/scullmem", NULL);
     ALOGD("scull module removed from kernel!\n");
 }
 
