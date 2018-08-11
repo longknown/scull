@@ -8,25 +8,35 @@
 #include <linux/uaccess.h>
 #include "scull.h"
 
+#define BUFSIZE 512
+#undef min
+#define min(a, b) ((a) > (b)? (b) : (a))
+
 MODULE_LICENSE("Dual BSD/GPL");
 
 struct file_operations proc_fops = {
     .read = scull_read_procmem,
 };
 
+/*
+ * As for the new version of kernel, as we don't have eof as one of the parameter.
+ * We have to signal an EOF to any reading program, one of the simple tactics is:
+ * using offp as an indication, *offp == 0, perform read; otherwise, return 0,
+ * which signals EOF to reading programs such as cat;
+ */
+
 ssize_t scull_read_procmem(struct file *filp, char __user *buffer, size_t count, loff_t *offp)
 {
     int i, j, k, len = 0;
-    const int limit = count - 80;
     struct scull_dev *sdev;
     struct scull_qset *qset;
     void **data;
+    char buf[BUFSIZE];
+    const int limit = min(count, BUFSIZE) - 80;
 
-    char *buf = kmalloc(count, GFP_KERNEL);
-    if(!buf) {
-        ALOGD("scull_read_procmem: kmalloc failed\n");
+    // the second read would return 0
+    if(*offp > 0)
         return 0;
-    }
 
     ALOGD("scull_read_procmem: count = %ld\n", count);
     for(i = 0; i < gDev_nums && len <= limit; i++) {
@@ -48,6 +58,7 @@ ssize_t scull_read_procmem(struct file *filp, char __user *buffer, size_t count,
         up(&sdev->proc_sem);
     }
     copy_to_user(buffer, buf, len);
+    *offp += len;
 
     return len;
 }

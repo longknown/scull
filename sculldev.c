@@ -329,7 +329,7 @@ void __exit scull_exit(void)
         cdev_del(&(gSdev[index].cdev));
         scull_trim(&gSdev[index]);
     }
-    remove_proc_entry("/driver/scullmem", NULL);
+    remove_proc_entry("driver/scullmem", NULL);
     ALOGD("scull module removed from kernel!\n");
 }
 
