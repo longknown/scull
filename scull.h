@@ -68,5 +68,17 @@ int (scull_trim) (struct scull_dev *);
 struct scull_qset *scull_follow(struct scull_dev *, int);
 int scull_alloc(struct scull_dev *);
 
+/*
+ * For /proc file implementations
+ */
 extern struct file_operations proc_fops;
-ssize_t (scull_read_procmem) (struct file *, char __user *, size_t, loff_t *);
+
+#ifdef USE_SEQ  // using seq_file implementation, the default method
+    void * (scull_seq_start) (struct seq_file *m, loff_t *pos);
+    void (scull_seq_stop) (struct seq_file *m, void *v);
+    void * (scull_seq_next) (struct seq_file *m, void *v, loff_t *pos);
+    int (scull_seq_show) (struct seq_file *m, void *v);
+    int (scull_proc_open) (struct inode *, struct file *);
+#else   // using traditional proc_read method
+    ssize_t (scull_read_procmem) (struct file *, char __user *, size_t, loff_t *);
+#endif

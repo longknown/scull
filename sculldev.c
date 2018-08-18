@@ -305,7 +305,7 @@ int __init scull_init(void)
                 goto fail;
         }
 
-        proc_create("driver/scullmem", 0, NULL, &proc_fops);
+        proc_create("driver/scullproc", 0, NULL, &proc_fops);
         ALOGD("scull module inserted to kernel!\n");
     }
 
