@@ -1,3 +1,4 @@
+#include <linux/capability.h>
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -21,6 +22,7 @@ struct file_operations gScull_fops = {
     .release        = scull_release,
     .unlocked_ioctl = scull_ioctl,
     .open           = scull_open,
+    .compat_ioctl          = scull_ioctl,
 };
 
 // global simple instance of scull_dev
@@ -87,16 +89,107 @@ static int scull_dev_init(struct scull_dev *sdev, int index)
     return err;
 }
 
-/* XXX dummy functions for scull_llseek() and scull_ioctl() */
+/* XXX dummy functions for scull_llseek() */
 loff_t scull_llseek(struct file *filp, loff_t offset, int i)
 {
     return 0;
 }
 
 
-long scull_ioctl(struct file *filp, unsigned int ui, unsigned long ul)
+/*
+ * our ioctl mainly dedicated to set gScull_qset & gScull_quantum
+ * it would take effect only after next write() operation
+ */
+long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long argp)
 {
-    return 0;
+    int err = 0, retval = 0;
+    int tmp;
+
+    // checking cmd type and NR to assure this is a valid scull cmd
+    if(_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) return -ENOTTY;
+    if(_IOC_NR(cmd) >= MAXNR) return -ENOTTY;
+
+    // check the validity of user provided data
+    if((_IOC_DIR(cmd) & _IOC_READ))
+        err = !access_ok(VERIFY_WRITE, (void __user *) argp, _IOC_SIZE(cmd));
+    else if((_IOC_DIR(cmd) & _IOC_WRITE))
+        err = !access_ok(VERIFY_READ, (void __user*)argp, _IOC_SIZE(cmd));
+    else
+        err = 0;
+
+    if(err) return -EFAULT;
+
+    switch (_IOC_NR(cmd)) {
+        case RESET:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            gScull_qset = SCULL_SET;
+            gScull_quantum = SCULL_QUANTUM;
+			break;
+        case SQUANTUM:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            retval = __get_user(gScull_quantum, (int __user*)argp);
+			break;
+        case SQSET:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            retval = __get_user(gScull_qset, (int __user*)argp);
+			break;
+        case TQUANTUM:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            gScull_quantum = argp;
+			break;
+        case TQSET:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            gScull_qset = argp;
+			break;
+        case GQUANTUM:
+            retval = __put_user(gScull_quantum, (int __user*)argp);
+			break;
+        case GQSET:
+            retval = __put_user(gScull_qset, (int __user*)argp);
+			break;
+        case QQUANTUM:
+            retval = gScull_quantum;
+			break;
+        case QQSET:
+            retval = gScull_qset;
+			break;
+        case XQUANTUM:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            tmp = gScull_quantum;
+            retval = __get_user(gScull_quantum, (int __user*)argp);
+            if(!retval)
+                retval = __put_user(tmp, (int __user*)argp);
+			break;
+        case XQSET:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            tmp = gScull_qset;
+            retval = __get_user(gScull_qset, (int __user*)argp);
+            if(!retval)
+                retval = __put_user(tmp, (int __user*)argp);
+			break;
+        case HQUANTUM:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            retval = gScull_quantum;
+            gScull_quantum = argp;
+			break;
+        case HQSET:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            retval = gScull_qset;
+            gScull_qset = argp;
+			break;
+        default:
+            break;
+    }
+    return retval;
 }
 
 
