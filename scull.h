@@ -15,24 +15,24 @@
 #define SCULL_QUANTUM   4096
 
 #ifdef NDEBUG
-#   ifdef __KERNEL__
-#   define ALOGV(fmt, ...) \
+# ifdef __KERNEL__
+#  define ALOGV(fmt, ...) \
         ((void) printk(KERN_INFO fmt, ## __VA_ARGS__))
-#   else
-#   define ALOGV(fmt, ...) \
+# else
+#  define ALOGV(fmt, ...) \
         ((void) fprintf(stderr, fmt, ## __VA_ARGS__))
-#   endif
+# endif
 #else
-#   define ALOGV(...)  \
+# define ALOGV(...)  \
         ((void) 0)
 #endif
 
 
 #ifdef __KERNEL__
-#   define ALOGD(fmt, ...) \
-        ((void) printk(KERN_ALERT fmt, ## __VA_ARGS__))
+# define ALOGD(fmt, ...) \
+    ((void) printk(KERN_ALERT fmt, ## __VA_ARGS__))
 #else
-#   define ALOGD(fmt, ...) \
+# define ALOGD(fmt, ...) \
     ((void) fprintf(stderr, fmt, ## __VA_ARGS__))
 #endif
 
@@ -96,6 +96,8 @@ extern struct file_operations proc_fops;
  * Q => Query, reply with a return value
  * X => eXchange, switch G&S automatically
  * H => sHift, switch Q&T automatically
+ * SYNCPARAMS => call scull_trim() to clear the quantum data,
+ *          and set to global parameters to scull_qset structs
  */
 enum ioc_t {
     RESET   = 0,
@@ -111,6 +113,7 @@ enum ioc_t {
     XQSET,
     HQUANTUM,
     HQSET,
+    SYNCPARAMS,
     MAXNR   = 14,
 };
 
@@ -127,3 +130,4 @@ enum ioc_t {
 #define SCULL_IOCXQSET      _IOWR(SCULL_IOC_MAGIC, XQSET, int)
 #define SCULL_IOCHQUANTUM   _IO(SCULL_IOC_MAGIC, HQUANTUM)
 #define SCULL_IOCHQSET      _IO(SCULL_IOC_MAGIC, HQSET)
+#define SCULL_SYNCPARAMS    _IO(SCULL_IOC_MAGIC, SYNCPARAMS)

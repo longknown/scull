@@ -89,6 +89,26 @@ static int scull_dev_init(struct scull_dev *sdev, int index)
     return err;
 }
 
+/*
+ * a private function dedicated to reset and reallocate qset structure,
+ * called on open driver, return 0 on success, -1 on failure
+ */
+static int scull_resetqset(struct file *filp)
+{
+    struct scull_dev *sdev = (struct scull_dev *) filp->private_data;
+    int err;
+
+    if(down_interruptible(&sdev->sem))
+        return -ERESTARTSYS;
+    scull_trim(sdev);
+    // at least we should allocate the data quantums for the first time
+    kfree(sdev->data);
+    err = scull_alloc(sdev);
+    up(&sdev->sem);
+    return err;
+}
+
+
 /* XXX dummy functions for scull_llseek() */
 loff_t scull_llseek(struct file *filp, loff_t offset, int i)
 {
@@ -186,17 +206,18 @@ long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long argp)
             retval = gScull_qset;
             gScull_qset = argp;
 			break;
+        case SYNCPARAMS:
+            retval = scull_resetqset(filp);
+            break;
         default:
             break;
     }
     return retval;
 }
 
-
 int scull_open(struct inode *inode, struct file *filp)
 {
     struct scull_dev *sdev;
-    int err;
 
     sdev = container_of(inode->i_cdev, struct scull_dev, cdev);
     filp->private_data = (void *)sdev;
@@ -205,14 +226,7 @@ int scull_open(struct inode *inode, struct file *filp)
     ALOGV("scull_open: calls scull_open with flag 0x%x", filp->f_flags & O_ACCMODE);
     if((filp->f_flags & O_ACCMODE) == O_WRONLY) {
         ALOGV("scull_open: in O_WRONLY mode, trim and re-alloc the data");
-        down_interruptible(&sdev->sem);
-        scull_trim(sdev);
-        // at least we should allocate the data quantums for the first time
-        kfree(sdev->data);
-        err = scull_alloc(sdev);
-        up(&sdev->sem);
-        if(err)
-            return -1;
+        return scull_resetqset(filp);
     }
 
     return 0;
@@ -230,7 +244,7 @@ int scull_alloc(struct scull_dev *sdev)
 {
     if(!sdev->data && !(sdev->data = kmalloc(sizeof(struct scull_qset), GFP_KERNEL))) {
         ALOGD("failed to allocate scull_qset to store data\n");
-        return 1;
+        return -1;
     }
 
     sdev->data->data = NULL;
