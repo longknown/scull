@@ -139,6 +139,8 @@ long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long argp)
 
     if(err) return -EFAULT;
 
+    // XXX Must check the param provided by user:
+    //      1. positive
     switch (_IOC_NR(cmd)) {
         case RESET:
             if(!capable(CAP_SYS_ADMIN))
