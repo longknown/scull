@@ -117,13 +117,15 @@ loff_t scull_llseek(struct file *filp, loff_t offset, int i)
 
 
 /*
- * our ioctl mainly dedicated to set gScull_qset & gScull_quantum
- * it would take effect only after next write() operation
+ * our ioctl mainly dedicated to set scull[0-3] qset and quantum params
+ * and perform a scull_trim after the successful WRITE cmd
+ * our ioctl return non-negative on successful, negative on failure
  */
 long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long argp)
 {
     int err = 0, retval = 0;
     int tmp;
+    struct scull_dev *sdev = (struct scull_dev *) filp->private_data;
 
     // checking cmd type and NR to assure this is a valid scull cmd
     if(_IOC_TYPE(cmd) != SCULL_IOC_MAGIC) return -ENOTTY;
@@ -139,81 +141,132 @@ long scull_ioctl(struct file *filp, unsigned int cmd, unsigned long argp)
 
     if(err) return -EFAULT;
 
-    // XXX Must check the param provided by user:
-    //      1. positive
     switch (_IOC_NR(cmd)) {
-        case RESET:
-            if(!capable(CAP_SYS_ADMIN))
-                return -EPERM;
-            gScull_qset = SCULL_SET;
-            gScull_quantum = SCULL_QUANTUM;
-			break;
         case SQUANTUM:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            retval = __get_user(gScull_quantum, (int __user*)argp);
+            retval = __get_user(tmp, (int __user*)argp);
+            // check the user-provided params positive
+            if(retval == 0 && tmp <= 0)
+                retval = -EFAULT;
+            else if(retval == 0) {
+                ALOGD("ioctl: set quantum to %d\n", tmp);
+                sdev->quantum = tmp;
+                retval = scull_resetqset(filp);
+            }
 			break;
         case SQSET:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            retval = __get_user(gScull_qset, (int __user*)argp);
+            retval = __get_user(tmp, (int __user*)argp);
+            // check the user-provided params positive
+            if(retval == 0 && tmp <= 0)
+                retval = -EFAULT;
+            else if(retval == 0) {
+                ALOGD("ioctl: set qset to %d\n", tmp);
+                sdev->qset = tmp;
+                retval = scull_resetqset(filp);
+            }
 			break;
         case TQUANTUM:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            gScull_quantum = argp;
+            // check the user-provided params positive
+            if((tmp = (int)argp) > 0) {
+                ALOGD("ioctl: set quantum to %d\n", tmp);
+                sdev->quantum = tmp;
+                retval = scull_resetqset(filp);
+            } else
+                retval = -EFAULT;
 			break;
         case TQSET:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            gScull_qset = argp;
+            // check the user-provided params positive
+            if((tmp = (int)argp) > 0) {
+                ALOGD("ioctl: set qset to %d\n", tmp);
+                sdev->qset = tmp;
+                retval = scull_resetqset(filp);
+            } else
+                retval = -EFAULT;
 			break;
         case GQUANTUM:
-            retval = __put_user(gScull_quantum, (int __user*)argp);
+            retval = __put_user(sdev->quantum, (int __user*)argp);
 			break;
         case GQSET:
-            retval = __put_user(gScull_qset, (int __user*)argp);
+            retval = __put_user(sdev->qset, (int __user*)argp);
 			break;
         case QQUANTUM:
-            retval = gScull_quantum;
+            retval = sdev->quantum;
 			break;
         case QQSET:
-            retval = gScull_qset;
+            retval = sdev->qset;
 			break;
         case XQUANTUM:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            tmp = gScull_quantum;
-            retval = __get_user(gScull_quantum, (int __user*)argp);
-            if(!retval)
-                retval = __put_user(tmp, (int __user*)argp);
+            retval = __get_user(tmp, (int __user*)argp);
+            if(retval > 0 && tmp <= 0)
+                retval = -EFAULT;
+            else if(retval > 0) {
+                retval = __put_user(sdev->quantum, (int __user*)argp);
+                sdev->quantum = tmp;
+                ALOGD("ioctl: set quantum to %d\n", tmp);
+                retval = scull_resetqset(filp);
+            }
 			break;
         case XQSET:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            tmp = gScull_qset;
-            retval = __get_user(gScull_qset, (int __user*)argp);
-            if(!retval)
-                retval = __put_user(tmp, (int __user*)argp);
+            retval = __get_user(tmp, (int __user*)argp);
+            if(retval > 0 && tmp <= 0)
+                retval = -EFAULT;
+            else if(retval > 0) {
+                retval = __put_user(sdev->qset, (int __user*)argp);
+                sdev->qset = tmp;
+                ALOGD("ioctl: set qset to %d\n", tmp);
+                retval = scull_resetqset(filp);
+            }
 			break;
         case HQUANTUM:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            retval = gScull_quantum;
-            gScull_quantum = argp;
+            tmp = (int)argp;
+            if(tmp <= 0)
+                return -EFAULT;
+            else {
+                retval = sdev->quantum;
+                sdev->quantum = tmp;
+                ALOGD("ioctl: set quantum to %d\n", tmp);
+                retval = scull_resetqset(filp);
+            }
 			break;
         case HQSET:
             if(!capable(CAP_SYS_ADMIN))
                 return -EPERM;
-            retval = gScull_qset;
-            gScull_qset = argp;
+            tmp = (int)argp;
+            if(tmp <= 0)
+                return -EFAULT;
+            else {
+                retval = sdev->qset;
+                sdev->qset = tmp;
+                ALOGD("ioctl: set qset to %d\n", tmp);
+                retval = scull_resetqset(filp);
+            }
 			break;
-        case SYNCPARAMS:
+        case RESET:
+            if(!capable(CAP_SYS_ADMIN))
+                return -EPERM;
+            sdev->qset = gScull_qset;
+            ALOGD("ioctl: reset quantm and qset\n");
+            sdev->quantum = gScull_quantum;
             retval = scull_resetqset(filp);
             break;
         default:
+            retval = -EFAULT;
             break;
     }
+
     return retval;
 }
 

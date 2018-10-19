@@ -1,8 +1,8 @@
 #include <linux/cdev.h>
 #include <linux/fs.h>
-#include <linux/ioctl.h>
 #include <linux/kernel.h>
 #include <linux/semaphore.h>
+#include "scull_ioctl.h"
 
 // uncomment NDEBUG to enable ALOGV
 //#define NDEBUG
@@ -84,50 +84,3 @@ extern struct file_operations proc_fops;
     ssize_t (scull_read_procmem) (struct file *, char __user *, size_t, loff_t *);
 #endif
 
-/*
- * IOCTL defines for scull driver
- */
-#define SCULL_IOC_MAGIC     'k'
-
-/*
- * S => Set, thru a pointer
- * T => Tell, thru argument value
- * G => Get, reply thru a pointer
- * Q => Query, reply with a return value
- * X => eXchange, switch G&S automatically
- * H => sHift, switch Q&T automatically
- * SYNCPARAMS => call scull_trim() to clear the quantum data,
- *          and set to global parameters to scull_qset structs
- */
-enum ioc_t {
-    RESET   = 0,
-    SQUANTUM,
-    SQSET,
-    TQUANTUM,
-    TQSET,
-    GQUANTUM,
-    GQSET,
-    QQUANTUM,
-    QQSET,
-    XQUANTUM,
-    XQSET,
-    HQUANTUM,
-    HQSET,
-    SYNCPARAMS,
-    MAXNR   = 14,
-};
-
-#define SCULL_IOCRESET      _IO(SCULL_IOC_MAGIC, RESET)
-#define SCULL_IOCSQUANTUM   _IOW(SCULL_IOC_MAGIC, SQUANTUM, int)
-#define SCULL_IOCSQSET      _IOW(SCULL_IOC_MAGIC, SQSET, int)
-#define SCULL_IOCTQUANTUM   _IO(SCULL_IOC_MAGIC, TQUANTUM)
-#define SCULL_IOCTQSET      _IO(SCULL_IOC_MAGIC, TQSET)
-#define SCULL_IOCGQUANTUM   _IOR(SCULL_IOC_MAGIC, GQUANTUM, int)
-#define SCULL_IOCGQSET      _IOR(SCULL_IOC_MAGIC, GQSET, int)
-#define SCULL_IOCQQUANTUM   _IO(SCULL_IOC_MAGIC, QQUANTUM)
-#define SCULL_IOCQQSET      _IO(SCULL_IOC_MAGIC, QQSET)
-#define SCULL_IOCXQUANTUM   _IOWR(SCULL_IOC_MAGIC, XQUANTUM, int)
-#define SCULL_IOCXQSET      _IOWR(SCULL_IOC_MAGIC, XQSET, int)
-#define SCULL_IOCHQUANTUM   _IO(SCULL_IOC_MAGIC, HQUANTUM)
-#define SCULL_IOCHQSET      _IO(SCULL_IOC_MAGIC, HQSET)
-#define SCULL_SYNCPARAMS    _IO(SCULL_IOC_MAGIC, SYNCPARAMS)
