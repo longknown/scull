@@ -329,8 +329,9 @@ int scull_trim(struct scull_dev *sdev)
 
     sdev->data = NULL;
     sdev->size = 0UL;
-    sdev->qset = gScull_qset;
-    sdev->quantum = gScull_quantum;
+    // set qset and quantum if uninitialised
+    sdev->qset = sdev->qset? : gScull_qset;
+    sdev->quantum = sdev->quantum? : gScull_quantum;
     return 0;
 }
 
@@ -491,7 +492,7 @@ void __exit scull_exit(void)
         cdev_del(&(gSdev[index].cdev));
         scull_trim(&gSdev[index]);
     }
-    remove_proc_entry("driver/scullmem", NULL);
+    remove_proc_entry("driver/scullproc", NULL);
     ALOGD("scull module removed from kernel!\n");
 }
 
