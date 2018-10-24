@@ -1,5 +1,6 @@
 ifneq ($(KERNELRELEASE),)
-	obj-m := scullpipe.o
+	obj-m += scullpipe.o
+	scullpipe-objs := scull_pipe.o scull_fops.o
 
 else
 	KERNELDIR ?= /lib/modules/$(shell uname -r)/build

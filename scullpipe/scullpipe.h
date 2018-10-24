@@ -2,12 +2,12 @@
 #include <linux/fs.h>
 #include <linux/wait.h>
 
-#define BUFSIZE     (1 << 12)
-#define DEV_NAME    "scull_pipe"
+#define BUFSIZE     (1 << 22)
+#define DEV_NAME    "scullpipe"
 
-//#define NDEBUG
+#define NDEBUG
 
-// patch "\n" at the end
+// pad "\n" at the end
 #ifdef NDEBUG
 # ifdef __KERNEL__
 #  define ALOGV(fmt, ...) \
@@ -33,7 +33,7 @@
 struct scullp_cdev {
     wait_queue_head_t   inq, outq;              // wait queue for read and write processes
     char                *buf_begin, *buf_end;   // ptr to begin and end+1 of the buffer
-    int                 bufsize;
+    size_t             bufsize;
     char                *rp, *wp;
     int                 nreads, nwrites;        // numbers of reads and writes
     struct fsync_struct *async_queue;           // asynchronous reads
@@ -45,5 +45,5 @@ loff_t scullp_llseek(struct file*, loff_t, int);
 ssize_t scullp_read(struct file*, char __user *, size_t, loff_t *);
 ssize_t scullp_write(struct file*, const char __user *, size_t, loff_t *);
 int scullp_open(struct inode*, struct file*);
-int scullp_ioctl(struct inode*, struct file*, unsigned int, unsigned long);
-int scull_release(struct inode*, struct file*);
+long scullp_ioctl(struct file*, unsigned int, unsigned long);
+int scullp_release(struct inode*, struct file*);

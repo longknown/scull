@@ -23,6 +23,15 @@ static struct file_operations scullp_fops = {
     .release        = scullp_release,
 };
 
+static void init_device(struct scullp_cdev *sdev)
+{
+    // initialise some device specific variables
+    gscullp_dev.bufsize = gbufsize;
+    sema_init(&sdev->sem, 1);
+    init_waitqueue_head(&sdev->inq);
+    init_waitqueue_head(&sdev->outq);
+}
+
 static int __init scullp_init(void)
 {
     dev_t devt;
@@ -40,13 +49,16 @@ static int __init scullp_init(void)
     // register char device
     cdev_init(&gscullp_dev.cdev, &scullp_fops);
     
-    gscullp_dev.ops = &scullp_fops;
-    err = cdev_add(&gscullp_dev, devt, 1);
+    gscullp_dev.cdev.ops = &scullp_fops;
+    err = cdev_add(&gscullp_dev.cdev, devt, 1);
 
     if(err) {
         ALOGD("error: unable to register char device to kernel");
         goto fail;
     }
+    init_device(&gscullp_dev);
+
+    ALOGD("%s module is inserted to kernel", DEV_NAME);
     return err;
 
 fail:
@@ -60,8 +72,10 @@ static void __exit scullp_exit(void)
 
     cdev_del(&gscullp_dev.cdev);
     unregister_chrdev_region(devt, 1);
+    ALOGD("%s module is removed from kernel", DEV_NAME);
 }
 
 
+/****** module init and exit ******/
 module_init(scullp_init);
 module_exit(scullp_exit);
